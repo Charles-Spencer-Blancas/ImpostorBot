@@ -1,12 +1,15 @@
+
 import pandas as pd
 from discord.ext import commands
-from dotenv import load_dotenv
+#from dotenv import load_dotenv Uncomment when final
 import os
 import random
+import discord
 
-
-load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
+# client = discord.Client()
+#load_dotenv() Uncomment when final
+#TOKEN = os.getenv('DISCORD_TOKEN') Uncomment when final
+TOKEN = os.environ['TOKEN'] # For repl, remove for final
 global bot
 bot = commands.Bot(command_prefix='$')
 
@@ -32,9 +35,21 @@ async def history(ctx, user):
     await ctx.guild.me.edit(nick=currentMemberCopying)
 
 
-@ bot.command(name='talk')
+@bot.command(name='talk')
 async def talk(ctx):
     await ctx.send(random.choice(possibleSayings))
+
+
+@bot.event
+async def on_message(message):
+  global possibleSayings
+  if "<@!946925871875367002>" in message.content:
+    await message.channel.send(random.choice(possibleSayings))
+    await bot.process_commands(message)
+  else:
+    await bot.process_commands(message)
+  
+
 
 # client.run(TOKEN)
 bot.run(TOKEN)
