@@ -17,7 +17,9 @@ global bot
 bot = commands.Bot(command_prefix='$')
 
 global currentMemberCopying
+currentMemberCopying = ''
 global possibleSayings
+possibleSayings = []
 global textDatabase
 global timeDatabase
 global replyOnly
@@ -39,25 +41,19 @@ with open('data.json') as json_file:
         print("decode")
         textDatabase = dict()
         print(textDatabase)
-
-
-# time reload
-# custom Decoder
-def DecodeDateTime(empDict):
-    for key in empDict:
-        empDict[key] = dateutil.parser.parse(empDict[key])
-        return empDict
-
-
 fle = Path('time.json')
 fle.touch(exist_ok=True)
 f = open(fle)
-with open('time.json') as json_file:
+with open('time.json') as json_file_time:
     try:
-        data = json.load(json_file, object_hook=DecodeDateTime)
+        time_data = json.load(json_file_time)
+        # decode
+        for channel in time_data:
+            for user in time_data[channel]:
+                time_data[channel][user] = dateutil.parser.parse(time_data[channel][user])
         # Print the type of data variable
         print("Type:", type(data))
-        timeDatabase = data
+        timeDatabase = time_data
         print("first_time")
         print(timeDatabase)
     except JSONDecodeError:
@@ -66,75 +62,100 @@ with open('time.json') as json_file:
         print(timeDatabase)
 
 
-@bot.command(name='impersonate')
-async def history(ctx, user):
-    userId = int(user[3:-1])
-    h = await ctx.channel.history(limit=9999).flatten()
-    channelId = ctx.channel.id
-    global possibleSayings
-    global currentMemberCopying
-    global textDatabase
-    global timeDatabase
 
+async def history_helper(ctx, user, userId, channel, channelId, possibleSayings, currentMemberCopying, textDatabase, timeDatabase):
+    # fetch messages after if date exist
+    h = []
+    if str(channelId) in timeDatabase:
+        if str(userId) in timeDatabase[str(channelId)]:
+            h = await channel.history(limit=9999, after=timeDatabase[str(channelId)][str(userId)]).flatten()
+    else:
+        h = await channel.history(limit=9999).flatten()
     # check if user has been called before
     filteredMessages = []
-    if str(userId) in timeDatabase:
-        print("current time database", timeDatabase[str(userId)])
-        filteredMessages = [
-            message for message in h if
-            message.author.id == userId and timeDatabase[str(userId)] < message.created_at]
-        print("type is here", type(message.created_at))
-        print("type is here", type(timeDatabase[str(userId)]))
+    filteredMessages = [message for message in h if message.author.id == userId]
+    # check if channel has ever been scraped
+    if str(channelId) in timeDatabase:
+        if str(userId) in timeDatabase[str(channelId)]:
+            print("current time database", timeDatabase[str(channelId)][str(userId)])
+            if filteredMessages is not None:
+                filteredMessages = [message for message in filteredMessages if timeDatabase[str(channelId)][str(userId)] < message.created_at]
     else:
-        filteredMessages = [
-            message for message in h if message.author.id == userId]
-
-    timeDatabase[str(userId)] = filteredMessages[0].created_at
-    print("that", timeDatabase[str(userId)])
-    print("this", filteredMessages[0].created_at)
-    print("this", filteredMessages[0].content)
-
+        timeDatabase[str(channelId)] = dict()
+   # check if there are new messages
+    if len(filteredMessages) == 0:
+        return
+    # update time
+    timeDatabase[str(channelId)][str(userId)] = filteredMessages[0].created_at
+    # to rename bot
     currentMemberCopying = filteredMessages[0].author.name
-    possibleSayings = [
-        message.content for message in filteredMessages]
+    possibleSayings_temp = [message.content for message in filteredMessages]
     print(str(channelId) in textDatabase)
     # Update texts to database
     if str(channelId) in textDatabase:
         if str(userId) in textDatabase[str(channelId)]:
-            for text in reversed(possibleSayings):
+            # temporary possibleSayings from offline json
+            possibleSayings = textDatabase[str(channelId)][str(userId)]
+            for text in reversed(possibleSayings_temp):
                 textDatabase[str(channelId)][str(userId)].append(text)
         else:
             textDatabase[str(channelId)][str(userId)] = []
-            for text in reversed(possibleSayings):
+            for text in reversed(possibleSayings_temp):
                 textDatabase[str(channelId)][str(userId)].append(text)
     else:
         textDatabase[str(channelId)] = dict()
         textDatabase[str(channelId)][str(userId)] = []
-        for text in reversed(possibleSayings):
+        for text in reversed(possibleSayings_temp):
             textDatabase[str(channelId)][str(userId)].append(text)
-
-    # updates offline database
+    # new possibleSayings after scrape
+    possibleSayings = textDatabase[str(channelId)][str(userId)]
+    # Write to offline database
     with open('data.json', 'w') as fp:
         json.dump(textDatabase, fp, indent=4)
-
+    # Write to offline time
     # subclass JSONEncoder
     class DateTimeEncoder(JSONEncoder):
         # Override the default method
         def default(self, obj):
             if isinstance(obj, (datetime.date, datetime.datetime)):
                 return obj.isoformat()
-
     print("Printing to check how it will look like")
     print(DateTimeEncoder().encode(timeDatabase))
     print("Encode DateTime Object into JSON using custom JSONEncoder")
-
     with open('time.json', 'w') as fp:
         # json.dump(timeDatabase, fp, indent=4, sort_keys=True, default=str)
         json.dump(timeDatabase, fp, indent=4, cls=DateTimeEncoder)
-
-    await ctx.send(f"Scraped the messages of {user}.")
+    # announcement
+    await ctx.send(f"Scraped the messages of {user}, on channel {channel.name}.")
     await ctx.guild.me.edit(nick=currentMemberCopying)
 
+
+@bot.command(name='impersonate')
+async def history(ctx, user):
+    await ctx.send("Obtaining intel. Sit tight.")
+    global possibleSayings
+    global currentMemberCopying
+    global textDatabase
+    global timeDatabase
+    # Identify the message
+    userId = int(user[3:-1])
+    channelId = ctx.channel.id
+    await history_helper(ctx, user, userId, ctx.channel, channelId, possibleSayings, currentMemberCopying, textDatabase, timeDatabase)
+
+@bot.command(name='impersonate2')
+async def history(ctx, user):
+    await ctx.send("Obtaining an extreme amount intel. Sit tight.")
+    global possibleSayings
+    global currentMemberCopying
+    global textDatabase
+    global timeDatabase
+    # Identify the message
+    userId = int(user[3:-1])
+    channel_list = [channel for channel in ctx.guild.channels if isinstance(channel, discord.TextChannel)]
+    # scrape all channels
+    for channel in channel_list:
+        await history_helper(ctx, user, userId, channel, channel.id, possibleSayings, currentMemberCopying, textDatabase, timeDatabase)
+    await ctx.send(f"Done. Now I am 100% {user}")
 
 @bot.command(name='talk')
 async def talk(ctx):
